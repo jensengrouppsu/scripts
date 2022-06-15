@@ -59,7 +59,7 @@ def main():
 
 def initiallize(args, freqfile):   
     '''Checks the options and sets up the calculation according to them.'''
-    from chem import collect
+    from chemPackage import collect
     from prep import range_check, file_safety_check
 
     # Collect data from the source file
