@@ -27,6 +27,9 @@ def main():
             help="Plot the raman spectrum directly from the polarizability derivatives. "
             "Requires the output of a frequency calculation", dest="raman", default=None)
 
+    parser.add_argument("--IR", "-i", metavar="freq.out", type=str, 
+            help="Plot the IR spectrum directly. "
+            "Requires the output of a frequency calculation", dest="IR", default=None)
     # the rest are optional 
     parser.add_argument("--translation","-t", metavar=("x.x","y.y","z.z"), nargs=3,
             default=[0.0,0.0,0.0], type=float, help="Translation of molecule. "
@@ -40,7 +43,7 @@ def main():
 
     parser.add_argument("--xaxis", metavar=("lower","upper"), nargs=2, type=float,
             help="Supply the range for the x axis of the plot, if not specified "
-                 "the range will be automatically selected.", default=None)
+                 "the range will be automatically selected.", default=[0,2000])
 
     parser.add_argument("--yaxis", metavar=("lower","upper"), nargs=2, type=float,
             help="Supply the range for the y axis of the plot, if not specified "
@@ -49,13 +52,16 @@ def main():
     parser.add_argument("--figname", default=None, type=str, metavar="fig.png",
             help="Supply a name for the figure if it is to be saved") 
 
+    parser.add_argument("--no-sticks", default=True, action='store_false',dest='lsticks',
+            help="If included sticks will not be plotted")
+
 
     
     args = parser.parse_args()
-    
+
     # sanity check: did they choose raman or dressed tensors. If not, give up on them
     #  in a condescending manner, well not really but I would if I could...
-    if args.dressed==None and args.raman==None:
+    if args.dressed==None and args.raman==None and args.IR == None:
         print("You didn't choose whether this is for dressed tensors or not.")
         exit("Please use the --help option for more information")
     # sanity check: They choose both... Why tho?
@@ -86,7 +92,7 @@ def main():
 
         # plot that spectrum 
         dressedTensors(dimout, freqout, args.translation, args.fwhm, args.scalefactor, 
-                        args.xaxis, args.yaxis, args.figname)
+                        args.xaxis, args.yaxis,args.lsticks, args.figname)
 
 
             
@@ -98,8 +104,17 @@ def main():
             exit("Please use the --help option for more information")
 
         # plot the spectrum
-        plotRaman(freqout, args.fwhm, args.scalefactor, args.xaxis, args.yaxis, args.figname)
+        plotRaman(freqout, args.fwhm, args.scalefactor, args.xaxis, args.yaxis, args.lsticks, args.figname)
 
+   # The second real condition: Raman by numerical differentiation.
+    elif args.IR != None and args.dressed == None:
+        freqout = collect(args.IR)
+        if "FREQUENCIES" not in freqout.calctype:
+            print("You did not supply a frequency output file.")
+            exit("Please use the --help option for more information")
+
+        # plot the spectrum
+        plotIR(freqout, args.fwhm, args.xaxis, args.yaxis, args.lsticks, args.figname)
 
     else:
         exit("This shouldn't even be possible, I guess I'm not as intellegent as I thought I was."
@@ -109,7 +124,7 @@ def main():
 
         
 
-def dressedTensors(dimout, freqout, tr, fwhm, scaleexp, xaxis, yaxis, figname):
+def dressedTensors(dimout, freqout, tr, fwhm, scaleexp, xaxis, yaxis, lsticks, figname):
     """ 
     This function plots the Raman spectrum of a system using the Dressed Tensors 
     formulism.
@@ -152,9 +167,10 @@ def dressedTensors(dimout, freqout, tr, fwhm, scaleexp, xaxis, yaxis, figname):
     sub = fig.add_subplot(111)
     sub.plot(domain, y2*scale, 'r')
     # Comment the below three lines to not plot the sticks
-    # fwhm is converted to hwhm. pi is for normalization
-    stickscale = scale / ( ( fwhm / 2 ) * PI )
-    sub.stem(x, y*stickscale, 'k-', 'k ', 'k ')
+    if lsticks:
+        # fwhm is converted to hwhm. pi is for normalization
+        stickscale = scale / ( ( fwhm / 2 ) * PI )
+        sub.stem(x, y*stickscale, 'k-', 'k ', 'k ')
     
    #lab = r'$\mathrm{Differential Cross-Section}$ $\frac{d\sigma}{d\Omega}$ '
     lab = r'Raman Intensity '
@@ -163,8 +179,7 @@ def dressedTensors(dimout, freqout, tr, fwhm, scaleexp, xaxis, yaxis, figname):
     sub.set_xlabel(r'$\mathrm{Wavenumber}$ ($\mathrm{cm}^{-1}$)')
 
     # check if ranges for the specturm were given. If given apply them
-    if xaxis != None:
-        sub.set_xlim(xaxis[0], xaxis[1])
+    sub.set_xlim(xaxis[0], xaxis[1])
     if yaxis != None:
         sub.set_ylim(yaxix[0], yaxis[1])
 
@@ -174,7 +189,7 @@ def dressedTensors(dimout, freqout, tr, fwhm, scaleexp, xaxis, yaxis, figname):
     else:
         plt.show()
 
-def plotRaman(freqout, fwhm, scaleexp, xaxis, yaxis, figname):
+def plotRaman(freqout, fwhm, scaleexp, xaxis, yaxis, lsticks, figname):
     """ 
     This function plots the Raman spectrum of a system using numerical 
     differentiation around the normal modes. 
@@ -206,10 +221,10 @@ def plotRaman(freqout, fwhm, scaleexp, xaxis, yaxis, figname):
     y2 = sum_lorentzian(domain, freqout.v_frequencies, raman_intensity, fwhm=fwhm)
     sub = fig.add_subplot(111)
     sub.plot(domain, y2*scale, 'r')
-    # Comment the below three lines to not plot the sticks
-    # fwhm is converted to hwhm. pi is for normalization
-    stickscale = scale / ( ( fwhm / 2 ) * PI )
-    sub.stem(freqout.v_frequencies, raman_intensity*stickscale, 'k-', 'k ', 'k ')
+    if lsticks:
+        # fwhm is converted to hwhm. pi is for normalization
+        stickscale = scale / ( ( fwhm / 2 ) * PI )
+        sub.stem(freqout.v_frequencies, raman_intensity*stickscale, 'k-', 'k ', 'k ')
     
    #lab = r'$\mathrm{Differential Cross-Section}$ $\frac{d\sigma}{d\Omega}$ '
     lab = r'Raman Intensity '  
@@ -218,11 +233,46 @@ def plotRaman(freqout, fwhm, scaleexp, xaxis, yaxis, figname):
     sub.set_xlabel(r'$\mathrm{Wavenumber}$ ($\mathrm{cm}^{-1}$)')
 
     # check if ranges for the specturm were given. If given apply them
-    if xaxis != None:
-        sub.set_xlim(xaxis[0], xaxis[1])
+    sub.set_xlim(xaxis[0], xaxis[1])
     if yaxis != None:
         sub.set_ylim(yaxis[0], yaxis[1])
     
+    if figname != None:
+        plt.savefig(figname, dpi=300)
+    else:
+        plt.show()
+
+def plotIR(freqout, fwhm, xaxis, yaxis, lsticks, figname):
+    """ 
+    This function plots the Raman spectrum of a system using numerical 
+    differentiation around the normal modes. 
+
+    freqout     ==> collected output file from a frequency calculation.
+    fwhm        ==> full width half max. Determines the width of the peaks
+    xaxis       ==> gives the lower and upper bounds for the x-axis. It is supplied in
+                    the form of a list. ie. [lower, upper] 
+    figname     ==> If it isn't None then this function will save the figure to 
+                    filename supplied.
+    """
+
+    fig = plt.figure()
+    sub = fig.add_subplot(111)
+
+    domain = linspace(0, freqout.v_frequencies[-1]*1.5, num=2000)
+    y = sum_lorentzian(domain, freqout.v_frequencies, freqout.IR, fwhm=fwhm)
+    sub.plot(domain, y)
+
+    if lsticks:
+        # fwhm is converted to hwhm. pi is for normalization
+        stickscale = 1.0 / ( ( fwhm / 2 ) * PI )
+        sub.stem(freqout.v_frequencies, freqout.IR*stickscale, 'k-','k ', 'k ')
+        
+
+    # check if ranges for the specturm were given. If given apply them
+    sub.set_xlim(xaxis[0], xaxis[1])
+    if yaxis != None:
+        sub.set_ylim(yaxis[0], yaxis[1])
+
     if figname != None:
         plt.savefig(figname, dpi=300)
     else:
