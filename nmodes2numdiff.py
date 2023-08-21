@@ -44,7 +44,7 @@ def main():
     parser.add_argument('-a', '--atombasis', help='The basis set for each '
                         'atom in the system, entered in \'atom basis\' format.',
                         nargs='+', default=None)
-    parser.add_argument('--stepsize', help='The normal mode step-size. The default '
+    parser.add_argument('--stepsize', help='The normal mode step-size, given in bohr. The default '
                         'is 0.01.', default=0.01, type=float)
     parser.add_argument('freqfile', help='The frequency file to base the '
                         'derivatives on.')
@@ -201,6 +201,8 @@ def create_inputs(template, args, source, low, high, qmcharge, atombasis):
                 # For each atom, calculate either the plus or minus direction
                 # of coordinate for the particular normalized normal mode.
                 # Replace the coordinates
+                # note: normal_modes contains the normalized displacement vector 
+                #  multiplied by B2A(bohr to angstrom)
                 nmode = new.normal_modes[i]
                 if mp == 'm':
                     new.coordinates = new.coordinates - nmode * sR
