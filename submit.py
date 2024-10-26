@@ -469,7 +469,7 @@ class Submittable(object):
             print(self.create_script(pp=abs(nodes*ppn)), file=sc)
 
         # Make the script executable
-        # chmod(script, 0755)
+        chmod(script, 0o755)
 
         # The job name can only be 15 bytes and must begin with a letter
         jobname = self.noext['base'][0:15]
@@ -558,10 +558,10 @@ class Submittable(object):
         if self.lexclusive:
             nodes = self.nodes if self.nodes else raw_input(n)
             wall  = self.wall  if self.wall  else raw_input(w)
-            ppn   = self.ppn   if self.ppn   else raw_input(p)
-            mem   = self.mem   if self.mem   else raw_input(m)
-            #ppn = 0
-            #mem = 0
+            # ppn   = self.ppn   if self.ppn   else raw_input(p)
+            # mem   = self.mem   if self.mem   else raw_input(m)
+            ppn = 0
+            mem = 0
         else:
             nodes = self.nodes if self.nodes else raw_input(n)
             ppn   = self.ppn   if self.ppn   else raw_input(p)
@@ -588,7 +588,7 @@ class Submittable(object):
             else:
                 print('#!/bin/bash', file=sc)
             print('#', file=sc)
-            print(self.lexclusive)
+            # print(self.lexclusive)
 
             print('#SBATCH --time={0}'.format(self.host.td2hms(wall)),
                                                 file=sc)
@@ -617,7 +617,7 @@ class Submittable(object):
             print(self.create_script(pp=abs(nodes*ppn)), file=sc)
 
         # Make the script executable
-        # chmod(script, 0755)
+        chmod(script, 0o755)
 
         # The job name can only be 15 bytes and must begin with a letter
         jobname = self.noext['base'][0:15]
@@ -1024,33 +1024,34 @@ class ADF(Scratch):
         '''Write the ADF script to file.'''
         from os import environ, getpid
         import random, string
+        # NOTE: Deprecated  -- Gaohe 20241026
         # Use a default OPAL_PREFIX location if not in user's bashrc
-        try:
-            OPAL_PREFIX = environ['OPAL_PREFIX']
-        except KeyError:
-            OPAL_PREFIX = '/usr/global/openmpi/1.6.0/intel'
+        # try:
+        #     OPAL_PREFIX = environ['OPAL_PREFIX']
+        # except KeyError:
+        #     OPAL_PREFIX = '/usr/global/openmpi/1.6.0/intel'
         # Make the string to clean up after the job is done
         template = '\nmv {0} {1}.{2} 2>/dev/null'
         cleanstr = '# Copy files'
         for raw, ext in self.save_files.items():
             cleanstr += template.format(raw, self.noext['full'], ext)
-        cleanstr += '\ntar -czf {0}.tar.gz * 2>/dev/null'.format(
-                                                            self.noext['base'])
+        cleanstr += '\ntar -czf {0}.tar.gz * 2>/dev/null'.format( self.noext['base'])
         cleanstr += '\nmv *.tar.gz {0} 2>/dev/null'.format(self.path)
         cleanstr += '\nrm -r $TMPDIR'
 
         # Edit the input file to redirect the output to the output file
         inp = self.redirect_output(open(self.input['full']).read())
-        # Comment or not for TCP workaround (leaving this in the code
+        # NOTE: Comment or not for TCP workaround (leaving this in the code
         # if needed in the future).
         #comment = '' if self.host.name == 'lionxf.rcc.psu.edu' else '#'
-        comment = '### Pengchong Liu PBS script for ADF on ACI-b '
-        def randomword(length):
-            return ''.join(random.choice(string.lowercase) for i in range(length))
+        comment = '#'
+        randomword = lambda length: ''.join(random.choice(string.ascii_lowercase) for _ in range(length))
         ranjobname = self.noext['base'][0:15] 
         randstring = randomword(4)
         ranjobname = ''.join([ranjobname, randstring])
         print (ranjobname)
+        # TODO: Add a handle to automatic load ams. Configure related environmental varibels here
+        # Gaohe 20241026
         return dedent('''\
     #module load ams
     # Set stuff for ADF
@@ -1073,12 +1074,8 @@ class ADF(Scratch):
     {input}
 
     {clean}\
-    ''').format(name=self.noext['full'], dir=self.path, input=inp,
-                comment=comment, OPAL_PREFIX=OPAL_PREFIX,
-                clean="", base=self.noext['base'],ranjobname=ranjobname, scratch=self.host.scratch, temp=self.host.temp)
-               #clean=cleanstr, base=self.noext['base'])
-            
-
+    ''').format(name=self.noext['full'], dir=self.path, input=inp, comment=comment, clean="",
+                base=self.noext['base'],ranjobname=ranjobname, scratch=self.host.scratch, temp=self.host.temp)
 
 
 class BAND(ADF):
