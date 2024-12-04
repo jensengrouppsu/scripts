@@ -285,8 +285,8 @@ def determine_host(hostname):
         return Local(hostname)
     elif 'science.psu.edu' in hostname:
         return Local(hostname)
-    elif 'stampede.tacc.utexas.edu' in hostname:
-        return Stampede('stampede.tacc.utexas.edu')
+    elif 'stampede3.tacc.utexas.edu' in hostname:
+        return Stampede(hostname)
     elif 'acib.production.int.aci.ics.psu.edu' in hostname:
         return ACIb(hostname)
     elif 'hpc.psu.edu' in hostname:
@@ -406,9 +406,57 @@ class Submittable(object):
         else:
             if self.host.queue_type == 'PBS':
                 self.submit_PBS_queue()
-            else:
+            elif self.host.queue_type == 'SBATCH':
                 self.submit_SBATCH_queue()
 
+
+    def create_script(self, **kwargs) -> str:
+        '''Creates the .script file used for submitting on queueing hosts.
+        Must be overridden in the subclass.'''
+        return "Modified part of the input script"
+
+    def executable(self):
+        '''The executable to use to submit this script interactively.
+        Must be overridden in the subclass.'''
+        pass
+
+    def copy_input(self, tmpdir):
+        '''Copies input to the temp directory.
+        May be overwritten by the subclass'''
+        from shutil import copy
+        import os.path
+        from os.path import join
+        # hack to get TAPE21 and TAPE16 files into scratch for densf calculations
+        bases = os.path.splitext(self.input['full'])[0]
+        if (os.path.isfile(bases+".t21")):
+             copy(bases+".t21", join(tmpdir, "TAPE21"))
+        if (os.path.isfile(bases+".t16")):
+             copy(bases+".t16", join(tmpdir, "TAPE16"))
+
+        copy(self.input['full'], join(tmpdir, self.input['base']))
+
+    def add_input(self, arguments):
+        '''Appends the input files to the executable statement
+        in the appropriate way.  May be overwritten by the subclass'''
+        return arguments + [self.input['full']]
+
+    def stdstreams(self, **kwargs):
+        '''Returns the proper standard in, out and error.
+        May be overwritten by the subclass'''
+        if self.quiet:
+            return None, open(self.output['full'], 'w'), open('logfile', 'w')
+        else:
+            return None, open(self.output['full'], 'w'), sys.stderr
+
+    def clean(self, **kwargs):
+        '''Used to clean up after a job.   Returns the sources and destinations
+        of files to copy.  May be overwritten by the subclass'''
+        return None, None
+
+    def display_prog(self):
+        '''The program to display the results of execution (for debugging).
+        May be overwritten by the subclass'''
+        return 'less'
 
     def submit_PBS_queue(self):
         '''Submits the file on the PBS queueing system.'''
@@ -492,55 +540,6 @@ class Submittable(object):
             print('Submit with "qsub -N {0} {1}"'.format(jobname, script))
             print()
 
-    def create_script(self, **kwargs):
-        '''Creates the .script file used for submitting on queueing hosts.
-        Must be overridden in the subclass.'''
-        pass
-
-    def executable(self):
-        '''The executable to use to submit this script interactively.
-        Must be overridden in the subclass.'''
-        pass
-
-    def copy_input(self, tmpdir):
-        '''Copies input to the temp directory.
-        May be overwritten by the subclass'''
-        from shutil import copy
-        import os.path
-        from os.path import join
-        # hack to get TAPE21 and TAPE16 files into scratch for densf calculations
-        bases = os.path.splitext(self.input['full'])[0]
-        if (os.path.isfile(bases+".t21")):
-             copy(bases+".t21", join(tmpdir, "TAPE21"))
-        if (os.path.isfile(bases+".t16")):
-             copy(bases+".t16", join(tmpdir, "TAPE16"))
-
-        copy(self.input['full'], join(tmpdir, self.input['base']))
-
-    def add_input(self, arguments):
-        '''Appends the input files to the executable statement
-        in the appropriate way.  May be overwritten by the subclass'''
-        return arguments + [self.input['full']]
-
-    def stdstreams(self, **kwargs):
-        '''Returns the proper standard in, out and error.
-        May be overwritten by the subclass'''
-        if self.quiet:
-            return None, open(self.output['full'], 'w'), open('logfile', 'w')
-        else:
-            return None, open(self.output['full'], 'w'), sys.stderr
-
-    def clean(self, **kwargs):
-        '''Used to clean up after a job.   Returns the sources and destinations
-        of files to copy.  May be overwritten by the subclass'''
-        return None, None
-
-    def display_prog(self):
-        '''The program to display the results of execution (for debugging).
-        May be overwritten by the subclass'''
-        return 'less'
-
-
     def submit_SBATCH_queue(self):
         '''Submits the file on the SBATCH queueing system.'''
         from subprocess import call
@@ -554,7 +553,8 @@ class Submittable(object):
         m = 'How much memory per processor do you want (MB) [{0}] '
         m = m.format(self.host.defaultmem)
         print('File', self.input['full'])
-        print(self.lexclusive)
+        if 'stampede3.tacc.utexas.edu' in self.host.name:
+            self.lexclusive = True
         if self.lexclusive:
             nodes = self.nodes if self.nodes else raw_input(n)
             wall  = self.wall  if self.wall  else raw_input(w)
@@ -572,7 +572,7 @@ class Submittable(object):
         nodes = nodes if nodes else self.host.defaultnodes
         ppn   = ppn   if ppn   else self.host.defaultppn
         wall  = wall  if wall  else self.host.defaultwall
-        mem   = mem   if mem   else self.host.defaultmem
+        # mem   = mem   if mem   else self.host.defaultmem
 
         # Make sure that the options are the correct type
         nodes, ppn, wall, mem = self.host.type_check(nodes, ppn, wall, mem)
@@ -605,12 +605,15 @@ class Submittable(object):
                 print('#SBATCH --mem-per-cpu={0:d}mb'.format(mem), file=sc)
 
 
-            if self.host.queue != 'open':
-                print('#SBATCH --account={}'.format(self.host.queue), file=sc)
-                print('#SBATCH --partition={}'.format('sla-prio'), file=sc)
-            else :
-                print('#SBATCH --account={}'.format(self.host.queue), file=sc)
-                print('#SBATCH --partition={}'.format('open'), file=sc)
+            if 'hpc.psu.edu' in self.host.name:
+                if self.host.queue != 'open':
+                    print('#SBATCH --account={}'.format(self.host.queue), file=sc)
+                    print('#SBATCH --partition={}'.format('sla-prio'), file=sc)
+                else :
+                    print('#SBATCH --account={}'.format(self.host.queue), file=sc)
+                    print('#SBATCH --partition={}'.format('open'), file=sc)
+            elif 'stampede3.tacc.utexas.edu' in self.host.name:
+                print('#SBATCH -p {}'.format(self.host.queue), file=sc)
                 
             # Create the remainder of the script
             print('#SBATCH --error {name}.err'.format(name=self.noext['full']), file=sc)
@@ -927,6 +930,10 @@ class ADF(Scratch):
         if self.ext == 'inp':
             print('Warning: .inp extention for ADF is being '
                   'depreciated for .run.', file=sys.stderr)
+        self.script_type = {
+            Hpc: self.create_script_hpc,
+            Stampede: self.create_script_stampede,
+        }
 
     def edit_input(self):
         '''Examines the input file and checks if it needs to be edited.
@@ -1021,6 +1028,52 @@ class ADF(Scratch):
         return inputfile.replace('<<eor>>', '<<eor>', 1)
 
     def create_script(self, **kwargs):
+        # Gaohe: Dispatch for submitting on different sbatch configuration
+        host_type = type(self.host)
+        if host_type in self.script_type:
+            return self.script_type[host_type](**kwargs)
+        return "Unknown host"
+        # return ValueError("Unknown host")
+
+    def create_script_stampede(self, **kwargs):
+        '''Write the ADF script to file.'''
+        from os import environ, getpid
+        import random, string
+        # Edit the input file to redirect the output to the output file
+        inp = self.redirect_output(open(self.input['full']).read())
+        # NOTE: Comment or not for TCP workaround (leaving this in the code
+        # if needed in the future).
+        #comment = '' if self.host.name == 'lionxf.rcc.psu.edu' else '#'
+        comment = '#'
+        randomword = lambda length: ''.join(random.choice(string.ascii_lowercase) for _ in range(length))
+        ranjobname = self.noext['base'][0:15] 
+        randstring = randomword(4)
+        ranjobname = ''.join([ranjobname, randstring])
+        print (ranjobname)
+        return dedent('''\
+    #module load ams
+    # Set stuff for ADF
+    cd {scratch}
+    if [ ! -d "scratch_adf" ]; then
+        mkdir scratch_adf
+    fi
+    mkdir scratch_adf/{ranjobname}
+    cd scratch_adf/{ranjobname}
+    export TMPDIR={temp}
+    export SCM_RESULTDIR={dir}
+    export SCM_TMPDIR=$TMPDIR
+    export SCM_USETMPDIR=yes
+    # Stampede requires a different mpirun
+    export SCM_MPIRUN_EXE=ibrun
+    export SCM_MPIRUN_OPTIONS=
+
+    {input}
+    \
+    ''').format(name=self.noext['full'], dir=self.path, input=inp,
+                comment=comment,ranjobname=ranjobname,
+                scratch=self.host.scratch, temp=self.host.temp)
+
+    def create_script_hpc(self, **kwargs):
         '''Write the ADF script to file.'''
         from os import environ, getpid
         import random, string
@@ -1045,6 +1098,7 @@ class ADF(Scratch):
         # if needed in the future).
         #comment = '' if self.host.name == 'lionxf.rcc.psu.edu' else '#'
         comment = '#'
+        pbs = '' if self.host.queue_type == 'PBS' else '#'
         randomword = lambda length: ''.join(random.choice(string.ascii_lowercase) for _ in range(length))
         ranjobname = self.noext['base'][0:15] 
         randstring = randomword(4)
@@ -1052,10 +1106,11 @@ class ADF(Scratch):
         print (ranjobname)
         # TODO: Add a handle to automatic load ams. Configure related environmental varibels here
         # Gaohe 20241026
+        # TODO: Clean statement is currently not implemented
         return dedent('''\
     #module load ams
     # Set stuff for ADF
-    cat $PBS_NODEFILE > {name}.nodefile
+    {pbs}cat $PBS_NODEFILE > {name}.nodefile
     cd {scratch}
     if [ ! -d "scratch_adf" ]; then
         mkdir scratch_adf
@@ -1069,13 +1124,14 @@ class ADF(Scratch):
     {comment}export MPI_REMSH=$ADFBIN/torque_ssh # For PlatformMPI
     {comment}export MPIRUN_OPTIONS=-TCP # Use when Infiniband is broken
 
-    #export NSCM=$(wc -l < $PBS_NODEFILE)
+    {pbs}export NSCM=$(wc -l < $PBS_NODEFILE)
 
     {input}
 
     {clean}\
     ''').format(name=self.noext['full'], dir=self.path, input=inp, comment=comment, clean="",
-                base=self.noext['base'],ranjobname=ranjobname, scratch=self.host.scratch, temp=self.host.temp)
+                base=self.noext['base'],ranjobname=ranjobname, scratch=self.host.scratch, temp=self.host.temp,
+                pbs = pbs)
 
 
 class BAND(ADF):
@@ -1937,22 +1993,25 @@ class Queue(Host):
 
 
 class Stampede(Queue):
-    '''Class for the TACC Stampede cluster.  A subclass of Queue'''
+    '''Class for the TACC Stampede3 cluster.  A subclass of Queue'''
 
-    def __init(self, hostname):
+    def __init__(self, hostname):
         '''Initializes the Stampede class'''
         # Initialize the Host class
         Queue.__init__(self, hostname)
         # Default scratch directory
         self.scratch = os.getenv('SCRATCH')
+        print(self.scratch)
         # Set the queue name for this host
-        self.queue = 'normal'
+        # self.queue = 'normal'
         # maxnodes, maxppn, maxtotal, minnodes, maxwall, maxmem (in MB)
         self._set_limits(256, 16, 4096, 1, self.dhms2td('48:00:00'), 32000)
         # Change the default ppn.  This will always be 16.
         self.defaultppn = 16
 
-        self.queue_type = 'PBS'
+        self.temp = os.path.join('/tmp/')
+
+        self.queue_type = 'SBATCH'
 
 # jbb5516 Adding ACIb functionality. will remove comment when debugged
 class ACIb(Queue):
