@@ -1,6 +1,6 @@
 #! /usr/bin/env python
 from chemPackage import collect, dressedT
-from numpy import linspace
+from numpy import linspace, savetxt, array
 from chemPackage.constants import PI
 import argparse
 import matplotlib.pyplot as plt
@@ -19,7 +19,7 @@ def main():
             "molecule Raman scattering or DIM/QM SERS.")
 
     parser.add_argument("--dressed", "-d", nargs=2, metavar=("dim.out", "freq.out"),
-            type=str, help="Plot the raman spectrum using dressed tensors formulism. "
+            type=str, help="Plot the raman spectrum using dressed tensors formalism. "
             "Requires the output from a DIM calculation for the field, and the output "
             "of a frequency calculation. ", dest="dressed", default=None)
 
@@ -37,6 +37,9 @@ def main():
 
     parser.add_argument("--fwhm", metavar="20", default=20, type=float,
             help="Full width at half max for the peaks in the spectrum")
+    
+    parser.add_argument("--component", "-c", metavar="xx", default="all", type=str,
+            help="Supply the component of the tensor's derivative to calculate Raman intensity")
 
     parser.add_argument("--scalefactor", metavar="30", default=30,
             type=float, help="This is a scale factor for the y axis.")
@@ -52,11 +55,12 @@ def main():
     parser.add_argument("--figname", default=None, type=str, metavar="fig.png",
             help="Supply a name for the figure if it is to be saved") 
 
+    parser.add_argument("--specname", default=None, type=str, metavar="spectrum.txt",
+            help="Supply a name for the spectrum file if it is to be saved in xy format") 
+
     parser.add_argument("--no-sticks", default=True, action='store_false',dest='lsticks',
             help="If included sticks will not be plotted")
 
-
-    
     args = parser.parse_args()
 
     # sanity check: did they choose raman or dressed tensors. If not, give up on them
@@ -92,7 +96,7 @@ def main():
 
         # plot that spectrum 
         dressedTensors(dimout, freqout, args.translation, args.fwhm, args.scalefactor, 
-                        args.xaxis, args.yaxis,args.lsticks, args.figname)
+                        args.xaxis, args.yaxis,args.lsticks, args.figname, args.specname)
 
 
             
@@ -104,7 +108,8 @@ def main():
             exit("Please use the --help option for more information")
 
         # plot the spectrum
-        plotRaman(freqout, args.fwhm, args.scalefactor, args.xaxis, args.yaxis, args.lsticks, args.figname)
+        plotRaman(freqout, args.fwhm, args.scalefactor, args.xaxis, args.yaxis, args.component, 
+                  args.lsticks, args.figname, args.specname)
 
    # The second real condition: Raman by numerical differentiation.
     elif args.IR != None and args.dressed == None:
@@ -114,7 +119,7 @@ def main():
             exit("Please use the --help option for more information")
 
         # plot the spectrum
-        plotIR(freqout, args.fwhm, args.xaxis, args.yaxis, args.lsticks, args.figname)
+        plotIR(freqout, args.fwhm, args.xaxis, args.yaxis, args.lsticks, args.figname, args.specname)
 
     else:
         exit("This shouldn't even be possible, I guess I'm not as intellegent as I thought I was."
@@ -124,7 +129,7 @@ def main():
 
         
 
-def dressedTensors(dimout, freqout, tr, fwhm, scaleexp, xaxis, yaxis, lsticks, figname):
+def dressedTensors(dimout, freqout, tr, fwhm, scaleexp, xaxis, yaxis, lsticks, figname, specname):
     """ 
     This function plots the Raman spectrum of a system using the Dressed Tensors 
     formulism.
@@ -143,6 +148,9 @@ def dressedTensors(dimout, freqout, tr, fwhm, scaleexp, xaxis, yaxis, lsticks, f
                     the form of a list. ie. [lower, upper] 
     figname     ==> If it isn't None then this function will save the figure to 
                     filename supplied.
+    specname    ==> If it isn't None then this function will save the spectrum in the
+                    xy format to the filename supplied.
+                    
     """
 
     # collect the dipole-dipole polarizabilities derivatives and 
@@ -181,15 +189,18 @@ def dressedTensors(dimout, freqout, tr, fwhm, scaleexp, xaxis, yaxis, lsticks, f
     # check if ranges for the specturm were given. If given apply them
     sub.set_xlim(xaxis[0], xaxis[1])
     if yaxis != None:
-        sub.set_ylim(yaxix[0], yaxis[1])
+        sub.set_ylim(yaxis[0], yaxis[1])
 
     
     if figname != None:
         plt.savefig(figname, dpi=300)
     else:
         plt.show()
+        
+    if specname != None:
+        savetxt(specname, array([domain, y2*scale]).T, fmt=['%.2f', '%4.8g'])
 
-def plotRaman(freqout, fwhm, scaleexp, xaxis, yaxis, lsticks, figname):
+def plotRaman(freqout, fwhm, scaleexp, xaxis, yaxis, component, lsticks, figname, specname):
     """ 
     This function plots the Raman spectrum of a system using numerical 
     differentiation around the normal modes. 
@@ -202,8 +213,12 @@ def plotRaman(freqout, fwhm, scaleexp, xaxis, yaxis, lsticks, figname):
                     the form of a list. ie. [lower, upper] 
     yaxis       ==> gives the lower and upper bounds for the y-axis. It is supplied in
                     the form of a list. ie. [lower, upper] 
+    component   ==> gives the component of the polarizability tensor for which the
+                    Raman spectrum is to be calculated
     figname     ==> If it isn't None then this function will save the figure to 
                     filename supplied.
+    specname    ==> If it isn't None then this function will save the spectrum in the
+                    xy format to the filename supplied.
     """
     # good news, because the chem package is so great this works for both
     #  the Raman of the free molecule and SERS calculated with DIM/QM
@@ -211,7 +226,7 @@ def plotRaman(freqout, fwhm, scaleexp, xaxis, yaxis, lsticks, figname):
     # collect the dipole-dipole polarizabilities derivatives
     freqout.collect_raman_derivatives()
     # calculate the raman cross section for the system.
-    raman_intensity = freqout.cross_section()
+    raman_intensity = freqout.cross_section(component=component)
     
     scale = 10**scaleexp
     
@@ -241,8 +256,11 @@ def plotRaman(freqout, fwhm, scaleexp, xaxis, yaxis, lsticks, figname):
         plt.savefig(figname, dpi=300)
     else:
         plt.show()
+    
+    if specname != None:
+        savetxt(specname, array([domain, y2*scale]).T, fmt=['%.2f', '%4.8g'])
 
-def plotIR(freqout, fwhm, xaxis, yaxis, lsticks, figname):
+def plotIR(freqout, fwhm, xaxis, yaxis, lsticks, figname, specname):
     """ 
     This function plots the Raman spectrum of a system using numerical 
     differentiation around the normal modes. 
@@ -253,6 +271,8 @@ def plotIR(freqout, fwhm, xaxis, yaxis, lsticks, figname):
                     the form of a list. ie. [lower, upper] 
     figname     ==> If it isn't None then this function will save the figure to 
                     filename supplied.
+    specname    ==> If it isn't None then this function will save the spectrum in the
+                    xy format to the filename supplied.                
     """
 
     fig = plt.figure()
@@ -278,6 +298,9 @@ def plotIR(freqout, fwhm, xaxis, yaxis, lsticks, figname):
     else:
         plt.show()
     
+    if specname != None:
+        savetxt(specname, array([domain, y]).T, fmt=['%.2f', '%4.8g'])
+
 
 def lorentzian(x, peak=0, height=1.0, fwhm=None, hwhm=None):
     '''Calculates a three-parameter lorentzian for a given domain.'''
@@ -312,6 +335,7 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
+        import sys
         sys.exit(1)
 
 
