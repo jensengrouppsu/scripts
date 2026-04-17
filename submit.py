@@ -606,12 +606,13 @@ class Submittable(object):
 
 
             if 'hpc.psu.edu' in self.host.name:
+                print(self.host.queue)
                 if self.host.queue != 'open':
                     print('#SBATCH --account={}'.format(self.host.queue), file=sc)
                     print('#SBATCH --partition={}'.format('sla-prio'), file=sc)
                 else :
                     print('#SBATCH --account={}'.format(self.host.queue), file=sc)
-                    print('#SBATCH --partition={}'.format('open'), file=sc)
+                    print('#SBATCH --partition={}'.format('basic'), file=sc) # mhy5052 - changed 'open' here to 'basic', because ROAR changed the partition name.
             elif 'stampede3.tacc.utexas.edu' in self.host.name:
                 print('#SBATCH -p {}'.format(self.host.queue), file=sc)
                 
@@ -1091,7 +1092,7 @@ class ADF(Scratch):
         cleanstr += '\ntar -czf {0}.tar.gz * 2>/dev/null'.format( self.noext['base'])
         cleanstr += '\nmv *.tar.gz {0} 2>/dev/null'.format(self.path)
         cleanstr += '\nrm -r $TMPDIR'
-
+        
         # Edit the input file to redirect the output to the output file
         inp = self.redirect_output(open(self.input['full']).read())
         # NOTE: Comment or not for TCP workaround (leaving this in the code
@@ -1104,9 +1105,10 @@ class ADF(Scratch):
         randstring = randomword(4)
         ranjobname = ''.join([ranjobname, randstring])
         print (ranjobname)
-        # TODO: Add a handle to automatic load ams. Configure related environmental varibels here
+        # TODO: Add a handle to automatic load ams. Configure related environmental variables here
         # Gaohe 20241026
         # TODO: Clean statement is currently not implemented
+        
         return dedent('''\
     #module load ams
     # Set stuff for ADF
@@ -1121,6 +1123,9 @@ class ADF(Scratch):
     export SCM_RESULTDIR={dir}
     export SCM_TMPDIR=$TMPDIR
     export SCM_USETMPDIR=yes
+    
+    export SCM_MPIOPTIONS="--mpi=pmi2 --nodes={nodes} --ntasks-per-node={ppn}"
+    
     {comment}export MPI_REMSH=$ADFBIN/torque_ssh # For PlatformMPI
     {comment}export MPIRUN_OPTIONS=-TCP # Use when Infiniband is broken
 
@@ -1131,7 +1136,7 @@ class ADF(Scratch):
     {clean}\
     ''').format(name=self.noext['full'], dir=self.path, input=inp, comment=comment, clean="",
                 base=self.noext['base'],ranjobname=ranjobname, scratch=self.host.scratch, temp=self.host.temp,
-                pbs = pbs)
+                pbs=pbs, nodes=self.nodes, ppn=self.ppn)
 
 
 class BAND(ADF):
