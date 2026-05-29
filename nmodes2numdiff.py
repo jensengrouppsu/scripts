@@ -48,13 +48,18 @@ def main():
                         'is 0.01.', default=0.01, type=float)
     parser.add_argument('freqfile', help='The frequency file to base the '
                         'derivatives on.')
+    ssdimqm = parser.add_mutually_exclusive_group()
+    ssdimqm.add_argument('--stokes', action='store_true', help='Whether or not to use a Stokes shift in the local field '
+                                                               'corresponding to the vibrational energy difference (DIM/QM only)')
+    ssdimqm.add_argument('--antistokes', action='store_true', help='Whether or not to use an anti-Stokes shift in the local field '
+                                                                   'corresponding to the vibrational energy difference (DIM/QM only)')
     args = parser.parse_args()
 
     #  Verify options and create head and tail.
-    template, source, low, high, qmcharge, atombasis = initiallize(args, args.freqfile)
+    template, source, low, high, qmcharge, atombasis, stokes = initiallize(args, args.freqfile)
 
     # Create the input files for the various vibrational modes
-    create_inputs(template, args, source, low, high, qmcharge, atombasis)
+    create_inputs(template, args, source, low, high, qmcharge, atombasis, stokes)
 
 
 def initiallize(args, freqfile):   
@@ -119,11 +124,20 @@ def initiallize(args, freqfile):
                 atombasis[temp[0]] = temp[1] + ' ' + temp[2]
             else: # No ECP
                 atombasis[temp[0]] = temp[1]
+    
+    # If stokes or anti-stokes were requested (they are mutually exclusive),
+    # then set the stokes variable
+    if args.stokes:
+        stokes = 'stokes'
+    elif args.antistokes:
+        stokes = 'antistokes'
+    else:
+        stokes = None
+    
+    return template, source, low, high, qmcharge, atombasis, stokes
 
-    return template, source, low, high, qmcharge, atombasis
 
-
-def create_inputs(template, args, source, low, high, qmcharge, atombasis):
+def create_inputs(template, args, source, low, high, qmcharge, atombasis, stokes):
     '''Create the Raman input files based on the source file.'''
 
     # Check to see if this is a calculation of the two-photon transition
@@ -134,7 +148,20 @@ def create_inputs(template, args, source, low, high, qmcharge, atombasis):
         tpa = True
     else:
         tpa = False
-
+    
+    # Prepare for stokes shift
+    if stokes is not None:
+        # Check that DIMQM key is present
+        lDIMQM = any('DIMQM'.casefold() in x.casefold() for x in l)
+        if not lDIMQM:
+            raise IOError ('Stokes requested but this is not a DIMQM template.')
+        
+        # Check to see if the Stokes key exists already in the template
+        lstokesexists = any('STOKES'.casefold() in x.casefold() for x in l)
+    else:
+        # Initialize this variable to None if stokes is None
+        stokesshift = None
+    
     # Stepsize
     sR = args.stepsize # default is 0.01
 
@@ -190,7 +217,21 @@ def create_inputs(template, args, source, low, high, qmcharge, atombasis):
                 fname = 'tpa_mode' + strmode + '-' + mp + ext
             else:
                 fname = 'mode' + strmode + '-' + mp + ext
-                
+            
+            # If doing Stokes-shift, modify the stokes string
+            if stokes is not None:
+                if lstokesexists:
+                    stokesshift = f'{mode}'
+                    if stokes == 'stokes':
+                        stokesshift = f' {mode}'
+                    elif stokes == 'antistokes':
+                        stokesshift = f' -{mode}'
+                else:
+                    if stokes == 'stokes':
+                        stokesshift = f'STOKES {mode}'
+                    elif stokes == 'antistokes':
+                        stokesshift = f'STOKES -{mode}'
+            
             # Open file, then print head
             #with open('mode' + strmode + '-' + mp + ext, 'w') as f:
             with open(fname, 'w') as f:
@@ -211,7 +252,8 @@ def create_inputs(template, args, source, low, high, qmcharge, atombasis):
     
                 # Copy the template and print to file
                 new.copy_template(template=template, file=f, 
-                                  charge=qmcharge, basis=atombasis)
+                                  charge=qmcharge, basis=atombasis,
+                                  stokesshift=stokesshift)
 
         # Save this mode
         previous_mode = strmode
