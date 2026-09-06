@@ -27,12 +27,8 @@ def main():
         print(f"Error: file not found: {args.freq_file}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Reading: {args.freq_file}")
-    print(f"Mode color: {args.color}")
-
     try:
         source = collect(args.freq_file)
-        print("Has modes_to_pymol:", hasattr(source, "modes_to_pymol"))
         source.modes_to_pymol(freqmin=args.low, freqmax=args.high, color=args.color)
     except Exception as e:
         print(f"Error processing {args.freq_file}: {e}", file=sys.stderr)
