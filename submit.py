@@ -87,6 +87,9 @@ def main():
     povray = parser.add_argument_group('opts for POV-Ray')
     povray.add_argument('--vmd', help='Use a multiple of the default height '
                         'and width for VMD.', type=float)
+    # Options for Amsterdam Modeling Suite (AMS) only
+    amsopts = parser.add_argument_group('opts for AMS')
+    amsopts.add_argument('--rkf', help='Save rkf files. **Does not work on HPC.', action='store_true')
     # Options for jobs submitted on a queueing system
     queue = parser.add_argument_group('opts for hosts with queueing systems',
                              'These have no effect on an interactive system')
@@ -129,11 +132,13 @@ def main():
     queue.add_argument('-O', '--open', help='Use the open queue on ACI-b',
                         action='store_true', default=False)
     queue.add_argument('-A', '--allocation', help="Select allocation to submit to, "
-                       "'a', 'e', or 'c'. Default is 'o', open queue;"
-                       "'a' is our standard, paid allocation; "
-                       "'e' is basic computing nodes, lxj18_e_g_bc_default; " 
-                       "'c' is another allocation of standard computing nodes, lxj18_c_t_sc_default;",
-                        type=str, default='o' )
+                       "'o', 'c', 'n', 'f', or 'i'. Default is 'o', open queue;"
+                       "'c' is the credits that have been purchased, lxj18_cr_default;"
+                       "'n' is the private allocation, lxj18;"
+                       "'f' is lxj18_f_g_sc_default; "
+                       "'i' is lxj18_i;"
+                       "To see or modify the list of allocations go to /storage/group/lxj18/default/allocations.txt",
+                        type=str, default='o')
     # Options for jobs submitted on an interactive system
     inter = parser.add_argument_group('opts for interactive hosts',
                              'These have no effect on a queueing system')
@@ -607,7 +612,7 @@ class Submittable(object):
 
             if 'hpc.psu.edu' in self.host.name:
                 print(self.host.queue)
-                if self.host.queue != 'open':
+                if self.host.queue != 'open' and self.host.queue != 'lxj18_cr_default':
                     print('#SBATCH --account={}'.format(self.host.queue), file=sc)
                     print('#SBATCH --partition={}'.format('sla-prio'), file=sc)
                 else :
@@ -923,7 +928,12 @@ class ADF(Scratch):
                            'dftb.chk': 'chk',     'dftb.rkf': 'rkf',
                            'TAPE15'  : 't15',     'TAPE10'  : 't10',
                            'TAPE16'  : 't16'}
-
+        
+        # If user wants rkf too
+        if opts.rkf:
+            self.save_files['adf.rkf'] = 'rkf'
+            self.rkf = True # mhy5052 - Just allows me to keep track of this variable in all of ADF's methods 
+        
         # The raw logfile name
         self.rawlog = 'logfile'
 
@@ -1005,7 +1015,10 @@ class ADF(Scratch):
         except KeyError:
             sys.exit('Missing key "tmpdir" in clean')
         # Grab all files in the temp directory
-        sources = glob(join(tmpdir, '*'))
+        if not self.rkf:
+            sources = glob(join(tmpdir, '*'))
+        else:
+            sources = glob(join(tmpdir, 'ams.results/', '*'))
         # Grab all cub files in temp directory
         sourcescub = glob(join(tmpdir,'*.cub'))
         # Filter only the files we want
