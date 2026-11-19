@@ -930,9 +930,9 @@ class ADF(Scratch):
                            'TAPE16'  : 't16'}
         
         # If user wants rkf too
+        self.rkf = opts.rkf # mhy5052 - Just allows me to keep track of this variable in all of ADF's methods 
         if opts.rkf:
             self.save_files['adf.rkf'] = 'rkf'
-            self.rkf = True # mhy5052 - Just allows me to keep track of this variable in all of ADF's methods 
         
         # The raw logfile name
         self.rawlog = 'logfile'
